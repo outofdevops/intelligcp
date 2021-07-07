@@ -1,0 +1,48 @@
+#cloud-config
+
+users:
+- name: jetbrains
+  groups: docker
+  uid: 2000
+
+write_files:
+- path: /home/jetbrains/start-app.sh
+  permissions: 0700
+  owner: root
+  content: |
+    #!/bin/env bash
+
+    set -euo pipefail
+
+    docker run --rm --log-driver=gcplogs --log-opt gcp-log-cmd=true \
+      --name jetbrains \
+      -e PROJECTOR_USER_NAME=jetbrains \
+      -p 8887:8887 \
+      -v /home/jetbrains/workspace:/workspace \
+      ${jetbrains_image} 
+
+- path: /etc/systemd/system/jetbrains.service
+  permissions: 0644
+  owner: root
+  content: |
+    [Unit]
+    Description=JetBrains
+    Requires=network.target
+    After=network.target
+
+    [Service]
+    Restart=always
+    RestartSec=5
+    Environment="HOME=/home/jetbrains"
+    ExecStart=/bin/bash /home/jetbrains/start-app.sh
+    ExecStop=/usr/bin/docker stop jetbrains
+
+    [Install]
+    WantedBy=multi-user.target
+
+runcmd:
+- systemctl daemon-reload
+- systemctl start cloud-audit-setup
+- systemctl start jetbrains.service
+- iptables -w -A INPUT -p tcp --dport 443 -j ACCEPT
+- iptables -w -A INPUT -p tcp --dport 8887 -j ACCEPT
